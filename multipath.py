@@ -29,14 +29,19 @@ class Controller13(app_manager.RyuApp):
         self.path_with_ports_table = {} 
         self.datapath_list = {} 
         self.path_calculation_keeper = [] 
+    
+    def get_bandwidth(self, path, port, index):
+    	return self.bw[path[index]][port]
 
-    def find_path_cost(self,path):
-        ''' arg path is an list with all nodes in our route '''
+    def find_path_cost(self, path):
+        ''' arg path is a list with all nodes in our route '''
         path_cost = []
-        for i in range(len(path) - 1):
+        i = 0
+        while(i < len(path) - 1):
             port1 = self.neigh[path[i]][path[i + 1]]
-            bandwidth_between_two_nodes = self.bw[path[i]][port1]
+            bandwidth_between_two_nodes = self.get_bandwidth(path, port1, i)
             path_cost.append(bandwidth_between_two_nodes)
+            i += 1
         return sum(path_cost)
 
     def find_paths_and_costs(self, src, dst):
@@ -50,17 +55,17 @@ class Controller13(app_manager.RyuApp):
         possible_paths = list() 
         while queue:
             (edge, path) = queue.pop()
-            for vortex in set(self.neigh[edge]) - set(path):
-                if vortex == dst:
-                    path_to_dst = path + [vortex]
+            for vertex in set(self.neigh[edge]) - set(path):
+                if vertex == dst:
+                    path_to_dst = path + [vertex]
                     cost_of_path = self.find_path_cost(path_to_dst)
                     possible_paths.append(Paths(path_to_dst, cost_of_path))
                 else:
-                    queue.append((vortex, path + [vortex]))
+                    queue.append((vertex, path + [vertex]))
         return possible_paths 
            
     def find_n_optimal_paths(self, paths, number_of_optimal_paths = MAX_PATHS):
-        '''arg Paths is an list containing lists of possible paths'''
+        '''arg paths is an list containing lists of possible paths'''
         costs = [path.cost for path in paths]
         optimal_paths_indexes = list(map(costs.index, heapq.nsmallest(number_of_optimal_paths,costs)))
         optimal_paths = [paths[op_index] for op_index in optimal_paths_indexes]
@@ -71,7 +76,7 @@ class Controller13(app_manager.RyuApp):
         Add the ports to all switches including hosts
         '''
         paths_n_ports = list()
-        bar = {} 
+        bar = dict()
         in_port = first_port
         for s1, s2 in zip(paths[0].path[:-1], paths[0].path[1:]):
             out_port = self.neigh[s1][s2]
@@ -82,7 +87,6 @@ class Controller13(app_manager.RyuApp):
         return paths_n_ports
 
     def install_paths(self, src, first_port, dst, last_port, ip_src, ip_dst, type, pkt):
-        ''' Instalacja sciezek '''
 
         if (src, first_port, dst, last_port) not in self.path_calculation_keeper:
             self.path_calculation_keeper.append((src, first_port, dst, last_port))
@@ -106,69 +110,42 @@ class Controller13(app_manager.RyuApp):
             if type == 'UDP':
                 nw = pkt.get_protocol(ipv4.ipv4)
                 l4 = pkt.get_protocol(udp.udp)
-
-                match = ofp_parser.OFPMatch(in_port = in_port,
-                                        eth_type=ether_types.ETH_TYPE_IP, 
-                                        ipv4_src=ip_src,
-                                        ipv4_dst = ip_dst, 
-                                        ip_proto=inet.IPPROTO_UDP,
-                                        udp_src = l4.src_port, 
-                                        udp_dst = l4.dst_port)
-
+                match = ofp_parser.OFPMatch(in_port = in_port, eth_type=ether_types.ETH_TYPE_IP, ipv4_src=ip_src, ipv4_dst = ip_dst,  
+                				ip_proto=inet.IPPROTO_UDP, udp_src = l4.src_port, udp_dst = l4.dst_port)
                 self.logger.info(f"Installed path in switch: {node} out port: {out_port} in port: {in_port} ")
-                
                 self.add_flow(dp, 33333, match, actions, 10)
                 self.logger.info("UDP Flow added ! ")
             
             elif type == 'TCP':
-
                 nw = pkt.get_protocol(ipv4.ipv4)
                 l4 = pkt.get_protocol(tcp.tcp)
-
-                match = ofp_parser.OFPMatch(in_port = in_port,
-                                        eth_type=ether_types.ETH_TYPE_IP, 
-                                        ipv4_src=ip_src, 
-                                        ipv4_dst = ip_dst, 
-                                        ip_proto=inet.IPPROTO_TCP,
-                                        tcp_src = l4.src_port, 
-                                        tcp_dst = l4.dst_port)
-
+                match = ofp_parser.OFPMatch(in_port = in_port,eth_type=ether_types.ETH_TYPE_IP, ipv4_src=ip_src, ipv4_dst = ip_dst, 
+                                        ip_proto=inet.IPPROTO_TCP,tcp_src = l4.src_port, tcp_dst = l4.dst_port)
                 self.logger.info(f"Installed path in switch: {node} out port: {out_port} in port: {in_port} ")
-                
                 self.add_flow(dp, 44444, match, actions, 10)
                 self.logger.info("TCP Flow added ! ")
 
             elif type == 'ICMP':
-
                 nw = pkt.get_protocol(ipv4.ipv4)
-
                 match = ofp_parser.OFPMatch(in_port=in_port,
                                         eth_type=ether_types.ETH_TYPE_IP, 
                                         ipv4_src=ip_src, 
                                         ipv4_dst = ip_dst, 
                                         ip_proto=inet.IPPROTO_ICMP)
-
                 self.logger.info(f"Installed path in switch: {node} out port: {out_port} in port: {in_port} ")
-                
-                
                 self.add_flow(dp, 22222, match, actions, 10)
                 self.logger.info("ICMP Flow added ! ")
 
             elif type == 'ARP':
-                match_arp = ofp_parser.OFPMatch(in_port = in_port,
-                                                eth_type=ether_types.ETH_TYPE_ARP, 
-                                                arp_spa=ip_src, 
-                                                arp_tpa=ip_dst)
-
+                match_arp = ofp_parser.OFPMatch(in_port = in_port,eth_type=ether_types.ETH_TYPE_ARP, arp_spa=ip_src, arp_tpa=ip_dst)
                 self.logger.info(f"Install path in switch: {node} out port: {out_port} in port: {in_port} ")
-                
                 self.add_flow(dp, 1, match_arp, actions, 10)
                 self.logger.info("ARP Flow added ! ")
         
         return self.path_with_ports_table[(src, first_port, dst, last_port)][0][src][1]
 
     def add_flow(self, datapath, priority, match, actions, idle_timeout, buffer_id = None):
-        ''' Method Provided by the source Ryu library. '''
+        ''' Method Provided by the source Ryu library.'''
         
         ofproto = datapath.ofproto 
         parser = datapath.ofproto_parser 
@@ -185,14 +162,12 @@ class Controller13(app_manager.RyuApp):
         datapath.send_msg(mod)
     
     def run_check(self, ofp_parser, dp):
-        ''' Co sekunde watek wypytuje switche o status portow i wysylany jest PortStatsReq'''
         threading.Timer(1.0, self.run_check, args=(ofp_parser, dp)).start()
         
         req = ofp_parser.OFPPortStatsRequest(dp) 
         dp.send_msg(req)
 
     def topology_discover(self, src, first_port, dst, last_port):
-        ''' Obliczanie optymalnej sciezki dla zadanych parametrow + przypisanie portow '''
         threading.Timer(1.0, self.topology_discover, args=(src, first_port, dst, last_port)).start()
         paths = self.find_paths_and_costs(src, dst)
         path = self.find_n_optimal_paths(paths)
@@ -222,7 +197,6 @@ class Controller13(app_manager.RyuApp):
         ip_pkt = pkt.get_protocol(ipv4.ipv4)
         
         if eth.ethertype == ether_types.ETH_TYPE_LLDP:
-            # ignore lldp packet
             return
 
         dst = eth.dst
@@ -254,7 +228,6 @@ class Controller13(app_manager.RyuApp):
             out_port = self.install_paths(h1[0], h1[1], h2[0], h2[1], src_ip, dst_ip, 'UDP', pkt)
             self.install_paths(h2[0], h2[1], h1[0], h1[1], dst_ip, src_ip, 'UDP', pkt) 
         
-            
         elif eth.ethertype == ether_types.ETH_TYPE_IP and nw.proto == inet.IPPROTO_TCP:
             src_ip = nw.src
             dst_ip = nw.dst

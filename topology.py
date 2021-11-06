@@ -45,7 +45,6 @@ def topology():
     info("*** Starting the network\n")
     net.build()
     c0.start()
-    c1.start()
     switch1.start([c0])
     switch2.start([c0])
     switch3.start([c0])
